@@ -1,4 +1,4 @@
-module grpc_pcbook
+module github.com/daffarg/grpc-pcbook
 
 go 1.18
 
