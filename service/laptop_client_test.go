@@ -1,11 +1,16 @@
 package service_test
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/daffarg/grpc-pcbook/pb"
 	"github.com/daffarg/grpc-pcbook/sample"
@@ -124,6 +129,83 @@ func TestClientSearchLaptop(t *testing.T) {
 	require.Equal(t, len(expectedId), found)
 
 }	
+
+func TestClientUploadImage(t * testing.T) {
+	t.Parallel()
+
+	imageFolder := "../tmp"
+
+	laptopStore := service.NewInMemoryLaptopStore()
+	imageStore := service.NewDiskImageStore(imageFolder)
+
+	laptop := sample.NewLaptop()
+	err := laptopStore.Save(laptop)
+	require.NoError(t, err)
+
+	serverAddress := startTestLaptopServer(t, laptopStore, imageStore)
+	serviceClient := newTestLaptopClient(t, serverAddress)
+
+	imagePath := fmt.Sprintf("%s/laptop.png", imageFolder)
+	file, err := os.Open(imagePath)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	defer cancel()
+
+	stream, err := serviceClient.UploadImage(ctx)
+	require.NoError(t, err)
+
+	err = stream.Send(&pb.UploadImageRequest{
+		Data: &pb.UploadImageRequest_Info{
+			Info: &pb.ImageInfo{
+				LaptopId: laptop.GetId(),
+				ImageType: filepath.Ext(imagePath),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	reader := bufio.NewReader(file)
+	buffer := make([]byte, 1024) // create empty buffers (1 megabyte)
+	size := 0
+	
+	for {
+		n, err := reader.Read(buffer) // read 1 megabyte image chunk data into buffer
+		if err == io.EOF {
+			break
+		}
+
+		require.NoError(t, err)
+		size += n
+
+		req := &pb.UploadImageRequest{
+			Data: &pb.UploadImageRequest_ChunkData{
+				ChunkData: buffer[:n],
+			},
+		}
+
+		err = stream.Send(req)
+		require.NoError(t, err)
+	}
+
+	res, err := stream.CloseAndRecv()
+
+	require.NoError(t, err)
+	require.NotZero(t, res.GetId())
+	require.EqualValues(t, size, res.GetSize())
+
+	err = file.Close()
+	require.NoError(t, err)
+
+	err = stream.CloseSend() // Close the stream before removing the file
+	require.NoError(t, err)
+
+	savedImagePath := fmt.Sprintf("%s/%s%s", imageFolder, res.GetId(), filepath.Ext(imagePath))
+	require.FileExists(t, savedImagePath)
+	require.NoError(t, os.Remove(savedImagePath))
+
+	log.Printf("successfully uploaded image with ID = %s and size = %d", res.GetId(), res.GetSize())
+} 
 
 func startTestLaptopServer(t *testing.T, laptopStore service.LaptopStore, imageStore service.ImageStore) string {
 	laptopServer := service.NewLaptopServer(laptopStore, imageStore)

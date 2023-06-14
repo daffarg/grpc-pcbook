@@ -49,15 +49,8 @@ func (server *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLapt
 	// time.Sleep(6 * time.Second)
 
 	// check if the context is cancelled
-	if ctx.Err() == context.Canceled {
-		log.Print("Request is canceled")
-		return nil, status.Error(codes.Canceled, "request is cancelled")
-	}
-
-	// check context error to see if the deadline exceeded
-	if ctx.Err() == context.DeadlineExceeded {
-		log.Print("deadline is exceeded")
-		return nil, status.Error(codes.DeadlineExceeded, "deadline is exceeded")
+	if err:= contextError(ctx); err != nil {
+		return nil, err
 	}
 
 	// save the laptop to in-memory store
@@ -126,13 +119,18 @@ func (server *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServe
 		return logError(status.Errorf(codes.Internal, "cannot find laptop with ID = %s : %v", laptopId, err))
 	}
 	if laptop == nil { // laptop doesn't exists
-		return logError(status.Errorf(codes.InvalidArgument, "laptop with ID = %s doesn't exists", laptopId, err))
+		return logError(status.Errorf(codes.InvalidArgument, "laptop with ID = %s doesn't exists", laptopId))
 	}
 
+	// initialize empty buffer
 	imageData := bytes.Buffer{}
 	imageSize := 0
 
 	for {
+		if err := contextError(stream.Context()); err != nil {
+			return nil
+		}
+
 		log.Printf("waiting to receive more image data")
 
 		req, err := stream.Recv() 
@@ -145,8 +143,12 @@ func (server *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServe
 			return logError(status.Errorf(codes.Unknown, "cannot receive chunk data: %v", err))
 		}
 
+		// time.Sleep(1 * time.Second)
+
 		chunk := req.GetChunkData() // get image chunk data
 		size := len(chunk)
+
+		log.Printf("received a chunk with size %d", size)
 
 		imageSize += size // increase total image size
 		if imageSize > maxImageSize {
@@ -185,4 +187,18 @@ func logError(err error) error {
 		log.Print(err)
 	}
 	return err
+}
+
+func contextError(ctx context.Context) error {
+	// check if the context is cancelled
+	switch ctx.Err() {
+		case context.Canceled:
+			log.Print("Request is canceled")
+			return logError(status.Error(codes.Canceled, "request is cancelled"))
+		case context.DeadlineExceeded:
+			log.Print("deadline is exceeded")
+			return logError(status.Error(codes.DeadlineExceeded, "deadline is exceeded"))
+		default:
+			return nil
+		}
 }

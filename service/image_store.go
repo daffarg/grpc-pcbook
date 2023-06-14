@@ -39,7 +39,7 @@ func (store *DiskImageStore) Save(laptopID string, imageType string, imageData b
 		return "", fmt.Errorf("cannot create new image ID: %v", err)
 	}
 
-	imagePath := fmt.Sprintf("%s/%s.%s", store.ImageFolder, imageId.String(), imageType)
+	imagePath := fmt.Sprintf("%s/%s%s", store.ImageFolder, imageId.String(), imageType)
 
 	file, err := os.Create(imagePath) // create new file
 	if err != nil {
@@ -49,6 +49,11 @@ func (store *DiskImageStore) Save(laptopID string, imageType string, imageData b
 	_, err = imageData.WriteTo(file) // write image data to file that created before
 	if err != nil {
 		return "", fmt.Errorf("cannot write to image file: %v", err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		return "", fmt.Errorf("cannot close the file: %v", err)
 	}
 
 	store.mutex.Lock()
