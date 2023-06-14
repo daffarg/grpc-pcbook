@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const maxImageSize = 1 << 20 // one megabyte
 
 type LaptopServer struct {
 	pb.UnimplementedLaptopServiceServer
@@ -106,17 +110,79 @@ func (server *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.
 	return nil
 }	
 
-// func (server *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServer) error {
-// 	for {
-// 		req, err := stream.Recv() // receive image data from client
-// 		if err != nil {
-// 			return status.Errorf(codes.Internal, "cannot receive image data : %v", err)
-// 		}
+func (server *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServer) error {
+	req, err := stream.Recv() // receive image info from client
 
-// 		if err == io.EOF {
-// 			return stream.SendAndClose(&pb.UploadImageResponse{
-				
-// 			})
-// 		}
-// 	}
-// }
+	if err != nil {
+		return logError(status.Errorf(codes.Unknown, "cannot receive image info"))
+	}
+
+	laptopId := req.GetInfo().GetLaptopId()
+	imageType := req.GetInfo().GetImageType()
+
+	// check if laptop exists
+	laptop, err := server.LaptopStore.FindById(laptopId)
+	if err != nil {
+		return logError(status.Errorf(codes.Internal, "cannot find laptop with ID = %s : %v", laptopId, err))
+	}
+	if laptop == nil { // laptop doesn't exists
+		return logError(status.Errorf(codes.InvalidArgument, "laptop with ID = %s doesn't exists", laptopId, err))
+	}
+
+	imageData := bytes.Buffer{}
+	imageSize := 0
+
+	for {
+		log.Printf("waiting to receive more image data")
+
+		req, err := stream.Recv() 
+
+		if err == io.EOF {
+			log.Printf("no more image data")
+			break
+		}
+		if err != nil {
+			return logError(status.Errorf(codes.Unknown, "cannot receive chunk data: %v", err))
+		}
+
+		chunk := req.GetChunkData() // get image chunk data
+		size := len(chunk)
+
+		imageSize += size // increase total image size
+		if imageSize > maxImageSize {
+			return logError(status.Errorf(codes.InvalidArgument, "image size larger than maximum size : %d > %d", imageSize, maxImageSize))
+		}
+
+		_, err = imageData.Write(chunk) // write chunk data received from client to image data buffer
+		if err != nil {
+			return logError(status.Errorf(codes.Unknown, "cannot write chunk data into the buffer : %v", err))
+		}
+	}
+
+	// after successfully received all chunk data, store the image
+	imageId, err := server.ImageStore.Save(laptopId, imageType, imageData)
+	
+	if err != nil {
+		return logError(status.Errorf(codes.Unknown, "cannot write chunk data into the buffer : %v", err))
+	}
+
+	res := &pb.UploadImageResponse{
+		Id: imageId,
+		Size: uint32(imageSize),
+	}
+
+	err = stream.SendAndClose(res)
+	if err != nil {
+		return logError(status.Errorf(codes.Unknown, "cannot send response : %v", err))
+	}
+
+	log.Printf("saved an image with id = %s and size = %d", imageId, imageSize)
+	return nil
+}
+
+func logError(err error) error {
+	if err != nil {
+		log.Print(err)
+	}
+	return err
+}
