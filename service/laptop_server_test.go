@@ -27,31 +27,36 @@ func TestServerCreateLaptop(t *testing.T) {
 	testCases := []struct { // test table 
 		name	string
 		laptop *pb.Laptop
-		store service.LaptopStore
+		laptopStore service.LaptopStore
+		imageStore service.ImageStore
 		code codes.Code
 	} {
 		{
 			name: "success_with_id",
 			laptop: sample.NewLaptop(),
-			store: service.NewInMemoryLaptopStore(),
+			laptopStore: service.NewInMemoryLaptopStore(),
+			imageStore: nil,
 			code: codes.OK,
 		},
 		{
 			name: "success_no_id",
 			laptop: laptopNoID,
-			store: service.NewInMemoryLaptopStore(),
+			laptopStore: service.NewInMemoryLaptopStore(),
+			imageStore: nil,
 			code: codes.OK,
 		},
 		{
 			name: "failure_invalid_id",
 			laptop: laptopInvalidID,
-			store: service.NewInMemoryLaptopStore(),
+			laptopStore: service.NewInMemoryLaptopStore(),
+			imageStore: nil,
 			code: codes.InvalidArgument,
 		},
 		{
 			name: "failure_duplicate_id",
 			laptop: laptopDuplicateID,
-			store: storeDuplicateID,
+			laptopStore: storeDuplicateID,
+			imageStore: nil,
 			code: codes.AlreadyExists,
 		},
 	}
@@ -63,7 +68,7 @@ func TestServerCreateLaptop(t *testing.T) {
 				Laptop: test.laptop,
 			}
 
-			server := service.NewLaptopServer(test.store)
+			server := service.NewLaptopServer(test.laptopStore, test.imageStore)
 			res, err := server.CreateLaptop(context.Background(), req)
 
 			if test.code == codes.OK {

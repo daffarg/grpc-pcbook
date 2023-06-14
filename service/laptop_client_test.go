@@ -18,7 +18,8 @@ import (
 func TestClientCreateLaptop(t *testing.T) {
 	t.Parallel()
 
-	laptopServer, listenAddr := startTestLaptopServer(t, service.NewInMemoryLaptopStore())
+	laptopStore := service.NewInMemoryLaptopStore()
+	listenAddr := startTestLaptopServer(t, laptopStore, nil)
 	laptopClient := newTestLaptopClient(t, listenAddr)
 
 	laptop := sample.NewLaptop()
@@ -32,7 +33,7 @@ func TestClientCreateLaptop(t *testing.T) {
 	require.Equal(t, expectedId, res.Id)
 
 	// check the laptop is saved in the server
-	returnedLaptop, err := laptopServer.Store.FindById(res.Id)
+	returnedLaptop, err := laptopStore.FindById(res.Id)
 	require.NoError(t, err)
 	require.NotNil(t, returnedLaptop)
 
@@ -94,7 +95,7 @@ func TestClientSearchLaptop(t *testing.T) {
 		Filter: filter,
 	}
 
-	_, serverAddress := startTestLaptopServer(t, store)
+	serverAddress := startTestLaptopServer(t, store, nil)
 	laptopClient := newTestLaptopClient(t, serverAddress)
 
 	stream, err := laptopClient.SearchLaptop(context.Background(), searchLaptopReq)
@@ -124,8 +125,8 @@ func TestClientSearchLaptop(t *testing.T) {
 
 }	
 
-func startTestLaptopServer(t *testing.T, store service.LaptopStore) (*service.LaptopServer, string) {
-	laptopServer := service.NewLaptopServer(service.NewInMemoryLaptopStore())
+func startTestLaptopServer(t *testing.T, laptopStore service.LaptopStore, imageStore service.ImageStore) string {
+	laptopServer := service.NewLaptopServer(laptopStore, imageStore)
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterLaptopServiceServer(grpcServer, laptopServer) // register laptopServer to grpcServer
@@ -135,10 +136,8 @@ func startTestLaptopServer(t *testing.T, store service.LaptopStore) (*service.La
 
 	go grpcServer.Serve(listener) // start grpcServer, this method is blocking so it will use goroutine
 
-	return laptopServer, listener.Addr().String() // return laptopServer and the address of the listener
+	return listener.Addr().String() // return laptopServer and the address of the listener
 }
-
-
 
 func newTestLaptopClient(t *testing.T, serverAddress string) pb.LaptopServiceClient {
 	conn, err := grpc.Dial(serverAddress, grpc.WithInsecure())

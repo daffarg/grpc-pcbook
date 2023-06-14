@@ -14,11 +14,12 @@ import (
 
 type LaptopServer struct {
 	pb.UnimplementedLaptopServiceServer
-	Store LaptopStore
+	LaptopStore LaptopStore
+	ImageStore ImageStore
 }
 
-func NewLaptopServer(store LaptopStore) *LaptopServer {
-	return &LaptopServer{Store: store}
+func NewLaptopServer(laptopStore LaptopStore, imageStore ImageStore) *LaptopServer {
+	return &LaptopServer{LaptopStore: laptopStore, ImageStore: imageStore}
 }
 
 func (server *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLaptopRequest) (*pb.CreateLaptopResponse, error) {
@@ -56,7 +57,7 @@ func (server *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLapt
 	}
 
 	// save the laptop to in-memory store
-	err := server.Store.Save(laptop)
+	err := server.LaptopStore.Save(laptop)
 
 	if err != nil {
 		code := codes.Internal
@@ -79,7 +80,7 @@ func (server *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.
 
 	log.Printf("receive search laptop request with filter : %v", filter)
 
-	err := server.Store.Search(
+	err := server.LaptopStore.Search(
 		stream.Context(),
 		filter, 
 		func (laptop *pb.Laptop) error { // call back function: send laptop stream to client
@@ -104,3 +105,18 @@ func (server *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.
 
 	return nil
 }	
+
+// func (server *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServer) error {
+// 	for {
+// 		req, err := stream.Recv() // receive image data from client
+// 		if err != nil {
+// 			return status.Errorf(codes.Internal, "cannot receive image data : %v", err)
+// 		}
+
+// 		if err == io.EOF {
+// 			return stream.SendAndClose(&pb.UploadImageResponse{
+				
+// 			})
+// 		}
+// 	}
+// }
